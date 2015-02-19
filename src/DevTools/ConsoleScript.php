@@ -1,5 +1,4 @@
 <?php
-
 /*
  * DevTools plugin for PocketMine-MP
  * Copyright (C) 2014 PocketMine Team <https://github.com/PocketMine/DevTools>
@@ -176,6 +175,37 @@ class PluginDescription {
     }
 }
 
+class BuilderYML {
+    private $depend = [];
+
+    /**
+     * @param string $yamlString
+     */
+    public function __construct($yamlString) {
+        $this->loadMap(yaml_parse($yamlString)); //TODO compile a binary with YAML
+
+    }
+
+    /**
+     * @param array $plugin
+     *
+     * @throws \Exception
+     */
+    private function loadMap(array $plugin) {
+        if (isset($plugin["depend"])) {
+            $this->depend = (array)$plugin["depend"];
+        }
+    }
+
+    /**
+     * @return array
+     */
+    public function getDepend() {
+        return $this->depend;
+    }
+
+}
+
 function downloadPlugin($depend) {
     $pluginSearch = json_decode(file_get_contents('http://sleepy-wave-2826.herokuapp.com/autocomplete?q=' . $depend), true) ['plugin-suggest'][0]['options'];
     if (empty($pluginSearch)) {
@@ -191,6 +221,11 @@ function downloadPlugin($depend) {
     $payload = $pluginSearch[0]['payload'];
     $phar = file_get_contents('http://forums.pocketmine.net/plugins/' . $payload['resource_id'] . '/download?version=' . $payload['current_version_id']);
     return file_put_contents('/pocketmine/plugins/' . $depend . '.phar', $phar);
+}
+
+function downloadFromURL($name, $url) {
+    $plugindata = file_get_contents($url);
+    return file_put_contents('/pocketmine/plugins/' . $name . '.phar', $plugindata);
 }
 
 $opts = getopt("", ["make:", "relative:", "out:", "entry:", "compress"]);
@@ -215,6 +250,10 @@ if (!is_dir($folderPath)) {
     exit(1);
 }
 $description = new PluginDescription(file_get_contents($folderPath . "plugin.yml"));
+if(file_exists($folderPath.".builder.yml")) {
+    $builderyml = new BuilderYML(file_get_contents($folderPath.".builder.yml"));
+}
+
 echo "\nCreating " . $pharName . "...\n";
 $phar = new \Phar($pharName);
 $phar->setMetadata(["name" => $description->getName(), "version" => $description->getVersion(), "main" => $description->getMain(), "api" => $description->getCompatibleApis(), "depend" => $description->getDepend(), "description" => $description->getDescription(), "authors" => $description->getAuthors(), "website" => $description->getWebsite(), "creationDate" => time() ]);
@@ -249,17 +288,26 @@ if (isset($opts["compress"])) {
 $phar->stopBuffering();
 
 if (!empty($description->getDepend()) && $description->getDepend() != []) {
-    mkdir('/pocketmine/plugins');
+    @mkdir('/pocketmine/plugins');
     foreach ($description->getDepend() as $depend) {
         downloadPlugin($depend);
     }
 }
 if (!empty($description->getSoftDepend()) && $description->getSoftDepend() != []) {
-    mkdir('/pocketmine/plugins');
+    @mkdir('/pocketmine/plugins');
     foreach ($description->getSoftDepend() as $depend) {
         downloadPlugin($depend);
     }
 }
+if(file_exists($folderPath.".builder.yml")) {
+    if (!empty($builderyml->getDepend()) && $builderyml->getDepend() != []) {
+        @mkdir('/pocketmine/plugins');
+        foreach ($builderyml->getDepend() as $dependname => $dependlocation) {
+            downloadFromURL($dependname, $dependlocation);
+        }
+    }
+}
+
 
 echo "Done!\n";
 exit(0);
